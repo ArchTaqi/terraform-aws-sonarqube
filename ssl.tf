@@ -1,17 +1,3 @@
-resource "aws_route53_record" "record_dns" {
-  count = var.enable_ssl ? 1 : 0
-
-  zone_id = var.dns_zone_id
-  name    = var.https_record_name
-  type    = "A"
-
-  alias {
-    name                   = module.ecs_fargate.aws_lb_lb_dns_name
-    zone_id                = module.ecs_fargate.aws_lb_lb_zone_id
-    evaluate_target_health = true
-  }
-}
-
 module "acm" {
   count = var.enable_ssl ? 1 : 0
 
@@ -25,7 +11,29 @@ module "acm" {
     "*.${var.https_record_domain_name}",
   ]
 
-  wait_for_validation = true
+  create_route53_records = false
+  wait_for_validation    = false
 
   tags = var.tags
+}
+
+resource "cloudflare_record" "acm_certificate_records" {
+  depends_on = [module.acm]
+
+  for_each = {
+    for item in module.acm.acm_certificate_domain_validation_options : item.domain_name => {
+      name   = item.resource_record_name
+      record = item.resource_record_value
+      type   = item.resource_record_type
+    }
+  }
+
+  zone_id         = var.dns_zone_id
+  name            = each.value.name
+  type            = each.value.type
+  value           = each.value.record
+  ttl             = 3600
+  priority        = 0
+  proxied         = false
+  allow_overwrite = true
 }
